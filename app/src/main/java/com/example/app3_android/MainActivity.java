@@ -5,6 +5,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import android.Manifest;
 import android.app.PendingIntent;
@@ -29,8 +30,7 @@ public class MainActivity extends AppCompatActivity {
     TextView fileType;
     TextView bytesDownloaded;
     EditText addressET;
-    Toast toast;
-    private static final int WRITE_EXTERNAL_STORAGE_REQUEST_CODE = 1;
+    ProgressBar progressBar;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,64 +43,77 @@ public class MainActivity extends AppCompatActivity {
         fileType = findViewById(R.id.fileType);
         bytesDownloaded = findViewById(R.id.bytesDownloaded);
         addressET = findViewById(R.id.addressET);
+        progressBar = findViewById(R.id.progress_bar);
 
-        infoButton.setOnClickListener(infoButtonListener);
         downloadButton.setOnClickListener(downloadButtonListener);
-        toast = Toast.makeText(this,"Odmówiono uprawnień", Toast.LENGTH_SHORT);
-
-        if (ActivityCompat.checkSelfPermission(
-                this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
-                PackageManager.PERMISSION_GRANTED) {
-            // Mamy uprawnienie, możemy rozpocząć pobieranie pliku
-            // ...
-        } else {
-            // Sprawdzamy, czy użytkownik wcześniej odmówił uprawnienia
-            if (ActivityCompat.shouldShowRequestPermissionRationale(this,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
-                // Wyjaśniamy mu, po co nam jest ono potrzebne...
-                // (po ewentualnym wyjaśnieniu) prosimy o uprawnienia
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                        WRITE_EXTERNAL_STORAGE_REQUEST_CODE);
-            } else {
-                // Poproszenie użytkownika o uprawnienia
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                        WRITE_EXTERNAL_STORAGE_REQUEST_CODE);
-            }
-        }
+        infoButton.setOnClickListener(infoButtonListener);
 
     }
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode) {
-            case WRITE_EXTERNAL_STORAGE_REQUEST_CODE:
-                if (grantResults.length > 0 &&
-                        permissions[0].equals(Manifest.permission.WRITE_EXTERNAL_STORAGE) &&
-                        grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    // Otrzymaliśmy uprawnienia, możemy rozpocząć np. pobieranie pliku
-                } else {
-                    // Nie otrzymaliśmy uprawnień
-                    toast.show();
-                    finish();
-                }
-                break;
-            default:
-                // Nieznany kod żądania – należy dostosować kod aplikacji i dodać obsługę kodu
-                break;
-        }
-    }
-
-
     View.OnClickListener infoButtonListener = view -> {
         asyncTask zadanie = new asyncTask(fileSize, fileType);
         zadanie.execute(addressET.getText().toString());
     };
-
-    View.OnClickListener downloadButtonListener = view ->
-    {
-        DownloadFile df = new DownloadFile(bytesDownloaded);
-        df.execute(addressET.getText().toString());
+    View.OnClickListener downloadButtonListener = view -> {
+        String urlText = addressET.getText().toString();
+        if (urlText.isEmpty()) {
+            addressET.setError("Wpisz adres URL");
+        } else {
+            if (ActivityCompat.checkSelfPermission(
+                    MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                    PackageManager.PERMISSION_GRANTED) {
+                DownloadFile.uruchomUsluge(MainActivity.this, urlText);
+            } else {
+                if (ActivityCompat.shouldShowRequestPermissionRationale(
+                        MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                    Toast.makeText(MainActivity.this, "Wymagane uprawnienia", Toast.LENGTH_SHORT).show();
+                }
+                ActivityCompat.requestPermissions(MainActivity.this,
+                        new String[] {
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE
+                        }, 1);
+            }
+        }
     };
+    private BroadcastReceiver broadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Broadcast statusInfo = intent.getParcelableExtra(DownloadFile.INFO);
+            bytesDownloaded.setText(Integer.toString(statusInfo.getDownloadedBytes()));
+            progressBar.setProgress(statusInfo.getProgress());
+        }
+    };
+    @Override
+    protected void onResume() {
+        super.onResume();
+        LocalBroadcastManager.getInstance(this).registerReceiver(broadcastReceiver, new IntentFilter(DownloadFile.NOTIFICATION));
+    }
+    @Override
+    protected void onPause() {
+        super.onPause();
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(broadcastReceiver);
+    }
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        String fileSizeValue = fileSize.getText().toString();
+        String fileTypeValue = fileType.getText().toString();
+        String downloadedBytesValue = bytesDownloaded.getText().toString();
+        int progressBarValue = progressBar.getProgress();
+        outState.putString("fileSize", fileSizeValue);
+        outState.putString("fileType", fileTypeValue);
+        outState.putString("bytesDownloaded", downloadedBytesValue);
+        outState.putInt("progressBar", progressBarValue);
+    }
+    @Override
+    protected void onRestoreInstanceState(Bundle savedInstanceState) {
+        super.onRestoreInstanceState(savedInstanceState);
+        String fileSizeValue = savedInstanceState.getString("fileSize");
+        String fileTypeValue = savedInstanceState.getString("fileType");
+        String downloadedBytesValue = savedInstanceState.getString("bytesDownloaded");
+        int progressBarValue = savedInstanceState.getInt("progressBar");
+        fileSize.setText(fileSizeValue);
+        fileType.setText(fileTypeValue);
+        bytesDownloaded.setText(downloadedBytesValue);
+        progressBar.setProgress(progressBarValue);
+    }
 }
